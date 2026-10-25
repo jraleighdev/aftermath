@@ -19,6 +19,15 @@ Top-down shooter in Rust + Bevy, built slice by slice — architecture is decide
 - Systems are tested headlessly: build a `World`, insert `Time` (use `advance_by`) and `ButtonInput<KeyCode>` resources, run the system through a `Schedule`, assert on components. No app, no window.
 - Gameplay tuning values are consts at the top of their module (`player::SPEED`).
 
+## Sprites
+
+- Draw pixel art with the `aseprite` MCP tools. Sources live at `assets/sprites/<name>.aseprite` with an exported `<name>.png` beside them — Bevy loads the PNG, not the source.
+- Pass **absolute paths** to every aseprite tool — relative paths fail with "file not found"; the server doesn't resolve them against the repo.
+- Only ~23 aseprite tools appear in the visible catalog; the rest (`create_canvas`, `draw_rows`, `generate_color_ramp`, `outline_cel`, `export_frame`, …) exist — call them in Code Mode via `tools.aseprite.*`, found with `search()`.
+- Image visibility is **model-dependent**: text-only models (e.g. `glm-5.2`) can't see `view_sprite`; vision models (e.g. `glm-5.3-flash`) can. Verify with `read_rows` / `lint_sprite` / `get_color_stats` regardless — they're model-independent and more precise. For a human look, `export_frame` an 8× PNG. Check a model's inputs via `opencode api get /api/model` (look for `capabilities.input`).
+- `draw_rows` requires equal-width rows and rejects a bad call atomically — build rows programmatically (`".".repeat(n)` + characters) instead of hand-counting dots.
+- `export_sprite` the PNG when a sprite is done; don't leave sprite work in `/tmp`.
+
 ## Gotchas
 
 - OpenCode server restarts kill background shells mid-build; compiled artifacts in `target/` survive, so just rerun the command.

@@ -13,6 +13,7 @@ fn main() {
             ..default()
         }))
         .add_systems(Startup, setup)
+        .add_systems(Update, player::aim)
         .add_systems(Update, player::movement)
         .run();
 }
