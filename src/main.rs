@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy::window::WindowPlugin;
 
 mod player;
+mod shoot;
 
 fn main() {
     App::new()
@@ -13,6 +14,7 @@ fn main() {
             ..default()
         }))
         .add_systems(Startup, setup)
+        .add_systems(Update, (shoot::shoot, shoot::move_bullets))
         .add_systems(Update, player::aim)
         .add_systems(Update, player::movement)
         .run();
