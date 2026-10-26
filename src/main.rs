@@ -3,6 +3,7 @@ use bevy::window::WindowPlugin;
 
 mod player;
 mod shoot;
+mod enemies;
 
 fn main() {
     App::new()
@@ -14,6 +15,7 @@ fn main() {
             ..default()
         }))
         .add_systems(Startup, setup)
+        .add_systems(Update, (enemies::spawn_enemies, enemies::chase).chain())
         .add_systems(Update, (shoot::cool_down, shoot::shoot).chain())
         .add_systems(Update, (shoot::move_bullets, shoot::despawn_offscreen))
         .add_systems(Update, player::aim)
