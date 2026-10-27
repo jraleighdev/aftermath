@@ -46,14 +46,28 @@ pub enum Facing {
     Side,
 }
 
-/// Component holding the player's current facing.
+/// Component holding the player's current facing and world-space aim
+/// direction (toward the cursor), kept for shooting.
 #[derive(Component, Default)]
-pub struct PlayerFacing(pub Facing);
+pub struct PlayerFacing {
+    pub facing: Facing,
+    pub aim: Vec2,
+}
+
+/// The three loaded player sprites, one per facing.
+#[derive(Resource)]
+pub struct PlayerSprites {
+    pub down: Handle<Image>,
+    pub up: Handle<Image>,
+    pub side: Handle<Image>,
+}
 
 /// Quantizes mouse aim to a facing: the dominant axis of the
-/// cursor→player vector wins (screen Y grows downward).
+/// cursor→player vector wins (screen Y grows downward). Also keeps the
+/// aim direction and swaps the player's sprite/flip to match.
 pub fn update_facing(
-    mut player: Single<(&mut PlayerFacing, &Transform), With<Player>>,
+    mut player: Single<(&mut PlayerFacing, &Transform, &mut Sprite), With<Player>>,
+    sprites: Option<Res<PlayerSprites>>,
     camera: Single<(&Camera, &GlobalTransform)>,
     window: Single<&Window>,
 ) {
@@ -66,7 +80,7 @@ pub fn update_facing(
     };
     let offset = cursor_world - player.1.translation.xy();
     // Viewport Y grows downward but world Y grows upward.
-    player.0 .0 = if offset.abs().y >= offset.abs().x {
+    player.0.facing = if offset.abs().y >= offset.abs().x {
         if offset.y < 0.0 {
             Facing::Down
         } else {
@@ -75,6 +89,16 @@ pub fn update_facing(
     } else {
         Facing::Side
     };
+    player.0.aim = offset.normalize_or_zero();
+    if let Some(sprites) = sprites {
+        let (image, flip_x) = match (player.0.facing, offset.x < 0.0) {
+            (Facing::Down, _) => (sprites.down.clone(), false),
+            (Facing::Up, _) => (sprites.up.clone(), false),
+            (Facing::Side, left) => (sprites.side.clone(), left),
+        };
+        player.2.image = image;
+        player.2.flip_x = flip_x;
+    }
 }
 
 #[cfg(test)]
@@ -132,7 +156,7 @@ mod tests {
                 scale_factor: 1.0,
             });
         let player = world
-            .spawn((Player, PlayerFacing::default(), Transform::default()))
+            .spawn((Player, PlayerFacing::default(), Transform::default(), Sprite::default()))
             .id();
         (world, player)
     }
@@ -147,36 +171,88 @@ mod tests {
     fn cursor_below_faces_down() {
         let (mut world, player) = aim_world(Some(Vec2::new(400.0, 500.0)));
         run_aim(&mut world);
-        assert_eq!(world.get::<PlayerFacing>(player).unwrap().0, Facing::Down);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().facing, Facing::Down);
     }
 
     #[test]
     fn cursor_above_faces_up() {
         let (mut world, player) = aim_world(Some(Vec2::new(400.0, 100.0)));
         run_aim(&mut world);
-        assert_eq!(world.get::<PlayerFacing>(player).unwrap().0, Facing::Up);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().facing, Facing::Up);
     }
 
     #[test]
     fn cursor_right_faces_side() {
         let (mut world, player) = aim_world(Some(Vec2::new(600.0, 300.0)));
         run_aim(&mut world);
-        assert_eq!(world.get::<PlayerFacing>(player).unwrap().0, Facing::Side);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().facing, Facing::Side);
     }
 
     #[test]
     fn cursor_left_faces_side() {
         let (mut world, player) = aim_world(Some(Vec2::new(200.0, 300.0)));
         run_aim(&mut world);
-        assert_eq!(world.get::<PlayerFacing>(player).unwrap().0, Facing::Side);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().facing, Facing::Side);
     }
 
     #[test]
     fn no_cursor_keeps_facing() {
         let (mut world, player) = aim_world(None);
-        world.get_mut::<PlayerFacing>(player).unwrap().0 = Facing::Up;
+        world.get_mut::<PlayerFacing>(player).unwrap().facing = Facing::Up;
         run_aim(&mut world);
-        assert_eq!(world.get::<PlayerFacing>(player).unwrap().0, Facing::Up);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().facing, Facing::Up);
+    }
+
+    /// Distinct dummy image handles for sprite-swap assertions.
+    fn insert_sprites(world: &mut World) {
+        world.init_resource::<Assets<Image>>();
+        let sprites = {
+            let mut images = world.resource_mut::<Assets<Image>>();
+            PlayerSprites {
+                down: images.add(Image::default()),
+                up: images.add(Image::default()),
+                side: images.add(Image::default()),
+            }
+        };
+        world.insert_resource(sprites);
+    }
+
+    #[test]
+    fn cursor_left_flips_the_side_sprite() {
+        let (mut world, player) = aim_world(Some(Vec2::new(200.0, 300.0)));
+        insert_sprites(&mut world);
+        run_aim(&mut world);
+        let sprite = world.get::<Sprite>(player).unwrap();
+        assert!(sprite.flip_x);
+    }
+
+    #[test]
+    fn cursor_right_keeps_side_sprite_unflipped() {
+        let (mut world, player) = aim_world(Some(Vec2::new(600.0, 300.0)));
+        insert_sprites(&mut world);
+        run_aim(&mut world);
+        let sprite = world.get::<Sprite>(player).unwrap();
+        assert!(!sprite.flip_x);
+    }
+
+    #[test]
+    fn cursor_up_swaps_to_the_up_image() {
+        let (mut world, player) = aim_world(Some(Vec2::new(400.0, 100.0)));
+        insert_sprites(&mut world);
+        run_aim(&mut world);
+        let sprites = world.resource::<PlayerSprites>();
+        let sprite = world.get::<Sprite>(player).unwrap();
+        assert_eq!(sprite.image.id(), sprites.up.id());
+    }
+
+    #[test]
+    fn cursor_below_swaps_to_the_down_image() {
+        let (mut world, player) = aim_world(Some(Vec2::new(400.0, 500.0)));
+        insert_sprites(&mut world);
+        run_aim(&mut world);
+        let sprites = world.resource::<PlayerSprites>();
+        let sprite = world.get::<Sprite>(player).unwrap();
+        assert_eq!(sprite.image.id(), sprites.down.id());
     }
 
     #[test]

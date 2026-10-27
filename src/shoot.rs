@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 
 use crate::enemies::{Enemy, RADIUS as ENEMY_RADIUS};
-use crate::player::Player;/// A projectile: pixels per second it travels along its velocity.
+use crate::player::{Player, PlayerFacing};
+/// A projectile: pixels per second it travels along its velocity.
 #[derive(Component)]
 pub struct Bullet {
     pub velocity: Vec2,
@@ -34,20 +35,21 @@ pub fn cool_down(time: Res<Time>, mut cooldowns: Query<&mut ShotCooldown>) {
 /// once per `SHOT_COOLDOWN`.
 pub fn shoot(
     mouse: Res<ButtonInput<MouseButton>>,
-    mut players: Query<(&Transform, &mut ShotCooldown), With<Player>>,
+    mut players: Query<(&PlayerFacing, &Transform, &mut ShotCooldown), With<Player>>,
     mut commands: Commands,
 ) {
     if !mouse.pressed(MouseButton::Left) {
         return;
     }
-    for (transform, mut cooldown) in &mut players {
+    for (facing, transform, mut cooldown) in &mut players {
         if cooldown.remaining > 0.0 {
             continue;
         }
-        let direction = transform.right().xy();
+        let direction = facing.aim;
         commands.spawn((
             Bullet { velocity: direction * SPEED },
-            Transform::from_translation(transform.translation),
+            Transform::from_translation(transform.translation)
+                .with_rotation(Quat::from_rotation_z(direction.to_angle())),
             Sprite::from_color(Color::srgb(1.0, 0.2, 0.2), Vec2::new(12.0, 4.0)),
         ));
         cooldown.remaining = SHOT_COOLDOWN;
@@ -112,7 +114,6 @@ mod tests {
     use crate::enemies::Enemy;
     use bevy::camera::RenderTargetInfo;
     use bevy::window::WindowResolution;
-    use std::f32::consts::FRAC_PI_2;
     use std::time::Duration;
 
     /// World with an 800x600 window and identity camera, one player, and one
@@ -170,9 +171,9 @@ mod tests {
         assert!(world.get_entity(bullet).is_err());
     }
 
-    /// World with a 1s-old clock, one player at the origin facing `angle`,
-    /// and the left mouse button pressed iff `pressed`.
-    fn shoot_world(pressed: bool, angle: f32) -> World {
+    /// World with a 1s-old clock, one player at the origin aiming along
+    /// `aim`, and the left mouse button pressed iff `pressed`.
+    fn shoot_world(pressed: bool, aim: Vec2) -> World {
         let mut world = World::default();
 
         let mut time = Time::<()>::default();
@@ -188,7 +189,8 @@ mod tests {
         world.spawn((
             Player,
             ShotCooldown { remaining: 0.0 },
-            Transform::from_rotation(Quat::from_rotation_z(angle)),
+            PlayerFacing { facing: Facing::default(), aim },
+            Transform::default(),
         ));
         world
     }
@@ -213,8 +215,8 @@ mod tests {
 
     #[test]
     fn shoots_toward_aim_when_pressed() {
-        // Player faces +X (zero rotation, click or hold): bullet flies right.
-        let mut world = shoot_world(true, 0.0);
+        // Aim +X (click or hold): bullet flies right.
+        let mut world = shoot_world(true, Vec2::X);
         run(&mut world, add_shoot);
         assert_eq!(bullet_count(&mut world), 1);
 
@@ -225,8 +227,8 @@ mod tests {
 
     #[test]
     fn shoots_toward_aim_when_facing_up() {
-        // Facing +Y: bullet flies up. Held input counts too (click/hold).
-        let mut world = shoot_world(true, FRAC_PI_2);
+        // Aim +Y: bullet flies up. Held input counts too (click/hold).
+        let mut world = shoot_world(true, Vec2::Y);
         run(&mut world, add_shoot);
         let query = world.query::<(&Bullet, &Transform)>().single(&world).unwrap();
         assert!(query.0.velocity.abs_diff_eq(Vec2::new(0.0, SPEED), 0.01));
@@ -234,7 +236,7 @@ mod tests {
 
     #[test]
     fn shoots_nothing_without_input() {
-        let mut world = shoot_world(false, 0.0);
+        let mut world = shoot_world(false, Vec2::X);
         run(&mut world, add_shoot);
         assert_eq!(bullet_count(&mut world), 0);
     }
@@ -266,7 +268,7 @@ mod tests {
     /// nothing — one bullet per window.
     #[test]
     fn shoots_once_within_cooldown_window() {
-        let mut world = shoot_world(true, 0.0);
+        let mut world = shoot_world(true, Vec2::X);
         run(&mut world, add_run);
         assert_eq!(bullet_count(&mut world), 1);
 
@@ -281,7 +283,7 @@ mod tests {
     /// After enough time passes, holding fire shoots again.
     #[test]
     fn shoots_again_after_cooldown_window() {
-        let mut world = shoot_world(true, 0.0);
+        let mut world = shoot_world(true, Vec2::X);
         run(&mut world, add_run);
         world
             .resource_mut::<Time<()>>()
