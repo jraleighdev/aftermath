@@ -45,6 +45,10 @@ pub fn shoot(
         if cooldown.remaining > 0.0 {
             continue;
         }
+        // No cursor read yet (or cursor dead-center): no direction, no shot.
+        if facing.aim == Vec2::ZERO {
+            continue;
+        }
         let direction = facing.aim;
         commands.spawn((
             Bullet { velocity: direction * SPEED },
@@ -238,6 +242,14 @@ mod tests {
     #[test]
     fn shoots_nothing_without_input() {
         let mut world = shoot_world(false, Vec2::X);
+        run(&mut world, add_shoot);
+        assert_eq!(bullet_count(&mut world), 0);
+    }
+
+    #[test]
+    fn shoots_nothing_with_zero_aim() {
+        // Default facing before any cursor read: no direction, no bullet.
+        let mut world = shoot_world(true, Vec2::ZERO);
         run(&mut world, add_shoot);
         assert_eq!(bullet_count(&mut world), 0);
     }

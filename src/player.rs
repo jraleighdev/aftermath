@@ -196,6 +196,22 @@ mod tests {
     }
 
     #[test]
+    fn upper_right_diagonal_never_faces_down() {
+        // Near-45° top-right cursor: vertical tie-break must pick Up.
+        let (mut world, player) = aim_world(Some(Vec2::new(500.0, 150.0)));
+        run_aim(&mut world);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().facing, Facing::Up);
+    }
+
+    #[test]
+    fn exact_diagonal_tie_breaks_to_vertical() {
+        // World offset (100, 100): exact tie, vertical branch wins.
+        let (mut world, player) = aim_world(Some(Vec2::new(500.0, 200.0)));
+        run_aim(&mut world);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().facing, Facing::Up);
+    }
+
+    #[test]
     fn no_cursor_keeps_facing() {
         let (mut world, player) = aim_world(None);
         world.get_mut::<PlayerFacing>(player).unwrap().facing = Facing::Up;
