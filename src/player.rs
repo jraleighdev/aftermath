@@ -36,24 +36,45 @@ pub fn movement(
     }
 }
 
-/// Rotates every `Player` to face the mouse cursor. The square sprite
-/// faces right by default, so no extra 90° offset is needed.
-pub fn aim(
-    mut players: Query<&mut Transform, With<Player>>,
-    camera_query: Single<(&Camera, &GlobalTransform)>,
+/// Marks which way the player sprite faces; the side-right image is
+/// mirrored in code for left.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum Facing {
+    #[default]
+    Down,
+    Up,
+    Side,
+}
+
+/// Component holding the player's current facing.
+#[derive(Component, Default)]
+pub struct PlayerFacing(pub Facing);
+
+/// Quantizes mouse aim to a facing: the dominant axis of the
+/// cursor→player vector wins (screen Y grows downward).
+pub fn update_facing(
+    mut player: Single<(&mut PlayerFacing, &Transform), With<Player>>,
+    camera: Single<(&Camera, &GlobalTransform)>,
     window: Single<&Window>,
 ) {
-    let (camera, camera_transform) = *camera_query;
+    let (camera, camera_transform) = *camera;
     let Some(cursor_pos) = window.cursor_position() else {
         return;
     };
     let Ok(cursor_world) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
         return;
     };
-    for mut transform in &mut players {
-        transform.rotation =
-            Quat::from_rotation_z((cursor_world - transform.translation.xy()).to_angle());
-    }
+    let offset = cursor_world - player.1.translation.xy();
+    // Viewport Y grows downward but world Y grows upward.
+    player.0 .0 = if offset.abs().y >= offset.abs().x {
+        if offset.y < 0.0 {
+            Facing::Down
+        } else {
+            Facing::Up
+        }
+    } else {
+        Facing::Side
+    };
 }
 
 #[cfg(test)]
@@ -61,7 +82,6 @@ mod tests {
     use super::*;
     use bevy::camera::RenderTargetInfo;
     use bevy::window::WindowResolution;
-    use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
     use std::time::Duration;
 
     /// World with a 1s-old clock, the given keys held, and one player at the origin.
@@ -111,43 +131,52 @@ mod tests {
                 physical_size: UVec2::new(800, 600),
                 scale_factor: 1.0,
             });
-        let player = world.spawn((Player, Transform::default())).id();
+        let player = world
+            .spawn((Player, PlayerFacing::default(), Transform::default()))
+            .id();
         (world, player)
     }
 
     fn run_aim(world: &mut World) {
         let mut schedule = Schedule::default();
-        schedule.add_systems(aim);
+        schedule.add_systems(update_facing);
         schedule.run(world);
     }
 
     #[test]
-    fn aims_at_cursor_on_the_right() {
-        // Cursor at (600, 300) maps to world (200, 0) with an identity camera;
-        // a player facing right has zero rotation.
-        let (mut world, player) = aim_world(Some(Vec2::new(600.0, 300.0)));
+    fn cursor_below_faces_down() {
+        let (mut world, player) = aim_world(Some(Vec2::new(400.0, 500.0)));
         run_aim(&mut world);
-        let rotation = world.get::<Transform>(player).unwrap().rotation;
-        assert!(rotation.angle_between(Quat::IDENTITY) < 0.01);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().0, Facing::Down);
     }
 
     #[test]
-    fn aims_at_cursor_above() {
-        // Screen Y grows downward: cursor at (400, 100) is above center,
-        // mapping to world (0, 200) = straight up = +90°.
+    fn cursor_above_faces_up() {
         let (mut world, player) = aim_world(Some(Vec2::new(400.0, 100.0)));
         run_aim(&mut world);
-        let rotation = world.get::<Transform>(player).unwrap().rotation;
-        assert!(rotation.angle_between(Quat::from_rotation_z(FRAC_PI_2)) < 0.01);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().0, Facing::Up);
     }
 
     #[test]
-    fn keeps_rotation_with_no_cursor() {
-        let (mut world, player) = aim_world(None);
-        world.get_mut::<Transform>(player).unwrap().rotate_z(FRAC_PI_4);
+    fn cursor_right_faces_side() {
+        let (mut world, player) = aim_world(Some(Vec2::new(600.0, 300.0)));
         run_aim(&mut world);
-        let rotation = world.get::<Transform>(player).unwrap().rotation;
-        assert!(rotation.angle_between(Quat::from_rotation_z(FRAC_PI_4)) < 0.01);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().0, Facing::Side);
+    }
+
+    #[test]
+    fn cursor_left_faces_side() {
+        let (mut world, player) = aim_world(Some(Vec2::new(200.0, 300.0)));
+        run_aim(&mut world);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().0, Facing::Side);
+    }
+
+    #[test]
+    fn no_cursor_keeps_facing() {
+        let (mut world, player) = aim_world(None);
+        world.get_mut::<PlayerFacing>(player).unwrap().0 = Facing::Up;
+        run_aim(&mut world);
+        assert_eq!(world.get::<PlayerFacing>(player).unwrap().0, Facing::Up);
     }
 
     #[test]
