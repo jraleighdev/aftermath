@@ -1,0 +1,3 @@
+[target.x86_64-unknown-linux-gnu]
+# mold symlink-wraps the default linker for much faster dev links.
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]

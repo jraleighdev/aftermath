@@ -11,6 +11,8 @@ bevy = { version = "0.20", features = ["dev"] }
 # our code stays fast to recompile.
 [profile.dev]
 opt-level = 1
+# Trim debuginfo: big win for the I/O- and link-bound dev builds.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3

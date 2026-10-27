@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
-use crate::player::Player;
-/// A projectile: pixels per second it travels along its velocity.
+use crate::enemies::{Enemy, RADIUS as ENEMY_RADIUS};
+use crate::player::Player;/// A projectile: pixels per second it travels along its velocity.
 #[derive(Component)]
 pub struct Bullet {
     pub velocity: Vec2,
@@ -9,6 +9,9 @@ pub struct Bullet {
 
 /// Bullet speed in pixels per second.
 pub const SPEED: f32 = 600.0;
+
+/// Collision radius: half the bullet sprite's width.
+pub const RADIUS: f32 = 6.0;
 
 /// Minimum seconds between shots while holding fire.
 pub const SHOT_COOLDOWN: f32 = 0.2;
@@ -51,6 +54,27 @@ pub fn shoot(
     }
 }
 
+/// Kills the first enemy each bullet touches (and the bullet with it).
+pub fn collide(
+    mut commands: Commands,
+    bullets: Query<(Entity, &Transform), With<Bullet>>,
+    enemies: Query<(Entity, &Transform), With<Enemy>>,
+) {
+    for (bullet, bullet_transform) in &bullets {
+        let bullet_pos = bullet_transform.translation.xy();
+        let hit = enemies
+            .iter()
+            .find(|(_, enemy_transform)| {
+                bullet_pos.distance(enemy_transform.translation.xy())
+                    <= RADIUS + ENEMY_RADIUS
+            });
+        if let Some((enemy, _)) = hit {
+            commands.entity(bullet).despawn();
+            commands.entity(enemy).despawn();
+        }
+    }
+}
+
 /// Moves every bullet along its velocity.
 pub fn move_bullets(time: Res<Time>, mut bullets: Query<(&Bullet, &mut Transform)>) {
     for (bullet, mut transform) in &mut bullets {
@@ -85,6 +109,7 @@ pub fn despawn_offscreen(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::enemies::Enemy;
     use bevy::camera::RenderTargetInfo;
     use bevy::window::WindowResolution;
     use std::f32::consts::FRAC_PI_2;
@@ -263,5 +288,57 @@ mod tests {
             .advance_by(Duration::from_millis((SHOT_COOLDOWN * 1000.0) as u64));
         run(&mut world, add_run);
         assert_eq!(bullet_count(&mut world), 2);
+    }
+
+    /// World with one bullet and one enemy at the given positions, plus a
+    /// `HitEntities` resource so the assertions can check survival directly.
+    fn bullet_enemy_world(bullet_pos: Vec2, enemy_pos: Vec2) -> World {
+        let mut world = World::default();
+        world.insert_resource(Time::<()>::default());
+        let bullet = world
+            .spawn((Bullet { velocity: Vec2::ZERO }, Transform::from_translation(bullet_pos.extend(0.0))))
+            .id();
+        let enemy = world
+            .spawn((Enemy, Transform::from_translation(enemy_pos.extend(0.0))))
+            .id();
+        world.insert_resource(HitEntities { bullet, enemy });
+        world
+    }
+
+    /// Holds the spawned entities so tests can assert on survival directly.
+    #[derive(Resource)]
+    struct HitEntities {
+        bullet: Entity,
+        enemy: Entity,
+    }
+
+    fn add_collide(schedule: &mut Schedule) {
+        schedule.add_systems(collide);
+    }
+
+    #[test]
+    fn bullet_kills_itself_and_its_target_enemy() {
+        let mut world = bullet_enemy_world(Vec2::ZERO, Vec2::new(35.0, 0.0));
+        run(&mut world, add_collide);
+        let hit = world.resource::<HitEntities>();
+        assert!(world.get_entity(hit.bullet).is_err());
+        assert!(world.get_entity(hit.enemy).is_err());
+    }
+
+    #[test]
+    fn bullet_past_the_hit_range_kills_nothing() {
+        let mut world = bullet_enemy_world(Vec2::ZERO, Vec2::new(45.0, 0.0));
+        run(&mut world, add_collide);
+        let hit = world.resource::<HitEntities>();
+        assert!(world.get_entity(hit.bullet).is_ok());
+        assert!(world.get_entity(hit.enemy).is_ok());
+    }
+
+    #[test]
+    fn one_bullet_only_consumes_one_enemy() {
+        let mut world = bullet_enemy_world(Vec2::ZERO, Vec2::new(35.0, 0.0));
+        let second = world.spawn((Enemy, Transform::default())).id();
+        run(&mut world, add_collide);
+        assert!(world.get_entity(second).is_ok());
     }
 }

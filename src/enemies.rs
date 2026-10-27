@@ -8,6 +8,9 @@ pub struct Enemy;
 /// Enemy movement speed in pixels per second.
 pub const ENEMY_SPEED: f32 = 120.0;
 
+/// Collision radius: half the enemy sprite's size.
+pub const RADIUS: f32 = 30.0;
+
 /// Seconds between enemy spawns.
 pub const SPAWN_INTERVAL: f32 = 2.0;
 
