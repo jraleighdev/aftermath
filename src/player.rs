@@ -7,6 +7,9 @@ pub struct Player;
 /// Movement speed in pixels per second.
 pub const SPEED: f32 = 300.0;
 
+/// Collision radius: half the player sprite's size.
+pub const RADIUS: f32 = 50.0;
+
 /// Moves every `Player` with WASD or the arrow keys, normalized so
 /// diagonals aren't faster.
 pub fn movement(
