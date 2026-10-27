@@ -112,6 +112,7 @@ pub fn despawn_offscreen(
 mod tests {
     use super::*;
     use crate::enemies::Enemy;
+    use crate::player::Facing;
     use bevy::camera::RenderTargetInfo;
     use bevy::window::WindowResolution;
     use std::time::Duration;
